@@ -9,47 +9,6 @@ import (
 	"strings"
 )
 
-type BusinessRecord struct {
-	Name                string
-	Address             string
-	Street_Address      string
-	City                string
-	State               string
-	ZipCode             string
-	PlusCode            string
-	Phone               string
-	Category            string
-	Menu                string
-	Website             string
-	ListingType         string
-	Rating              string
-	Reviews             string
-	PriceRange          string
-	Hours               string
-	Description         string
-	MerchantVerified    string
-	PermanentlyClosed   string
-	TemporarilyClosed   string
-	DineIn              string
-	Takeout             string
-	Delivery            string
-	ImageURL            string
-	Listing_CID         string
-	Lat                 string
-	Long                string
-	PossibleVirtualTour string
-	Review_1_Text       string
-	Review_1_Score      string
-	Review_1_Date       string
-	Review_2_Text       string
-	Review_2_Score      string
-	Review_2_Date       string
-	Review_3_Text       string
-	Review_3_Score      string
-	Review_3_Date       string
-	ListingURL          string
-}
-
 func main() {
 	f, err := os.Open("bad.csv")
 	errCheck(err)
