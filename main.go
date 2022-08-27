@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -10,37 +9,34 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/gocarina/gocsv"
+	"github.com/joho/godotenv"
 )
 
 // Name, Address, Website, Phone Reviews, Rating, Category, Verified
+type Businesses struct {
+	Name     string `csv:"Name"`
+	Address  string `csv:"Address"`
+	Website  string `csv:"Website"`
+	Phone    string `csv:"Phone"`
+	Reviews  string `csv:"Reviews"`
+	Rating   string `csv:"Ratings"`
+	Verified string `csv:"Merchant Verified"`
+	Category string `csv:"Category"`
+	CID      string `csv:"Listing CID"`
+}
 
-func main() {
-	f, err := os.Open("bad.csv")
-	errCheck(err)
-	defer f.Close()
-
-	csvReader := csv.NewReader(f)
-	data, err := csvReader.ReadAll()
-	errCheck(err)
-
-	for i, line := range data {
-		if i > 0 {
-			website := line[5] // Update what line is website
-			website = strings.TrimSpace(website)
-
-			switch website {
-			case "http://business.site", "http://godaddysites.com ":
-				fmt.Printf("%s | <Sub-Domain Missing>\n", website)
-				cid := line[25]
-
-				website = findWebsite(cid)
-
-				fallthrough
-			default:
-				curl(website)
-			}
-		}
+func errCheck(err error) {
+	if err != nil {
+		log.Fatal(err)
 	}
+}
+
+func csvReader(file string, business *[]Businesses) {
+	bytes, err := ioutil.ReadFile(file)
+	errCheck(err)
+	gocsv.UnmarshalBytes(bytes, business)
 }
 
 func curl(url string) {
@@ -51,19 +47,13 @@ func curl(url string) {
 		return
 	}
 	data := strings.Split(string(stdout), "\n")
-	statusCode := strings.TrimSpace(string([]rune(data[0])[8:10]))
+	statusCode := strings.TrimSpace(string([]rune(strings.Split(data[0], " ")[1])[0]))
 	switch statusCode {
 	case "3", "2":
 	case "4":
 		fmt.Printf("%s | <NOT FOUND>\n", url)
 	default:
 		fmt.Printf("%s | %s\n", url, statusCode)
-	}
-}
-
-func errCheck(err error) {
-	if err != nil {
-		log.Fatal(err)
 	}
 }
 
@@ -95,4 +85,24 @@ func findWebsite(cid string, apiKey string) string {
 	json.Unmarshal(body, &places)
 
 	return places.Result.Website
+}
+
+func main() {
+	var businesses []Businesses
+
+	godotenv.Load()
+
+	csvReader("bad.csv", &businesses)
+	for _, business := range businesses {
+		website := strings.TrimSpace(business.Website)
+		cid := strings.TrimSpace(business.CID)
+		switch website {
+		case "http://business.site", "http://godaddysites.com":
+			website = findWebsite(cid, os.Getenv("API_KEY"))
+			fmt.Printf("%s | <Found Mssing Website>\n", website)
+			fallthrough
+		default:
+			curl(website)
+		}
+	}
 }
