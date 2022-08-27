@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/gocarina/gocsv"
@@ -37,6 +38,19 @@ func csvReader(file string, business *[]Businesses) {
 	bytes, err := ioutil.ReadFile(file)
 	errCheck(err)
 	gocsv.UnmarshalBytes(bytes, business)
+}
+
+func ReadAll() []Businesses {
+	files, _ := filepath.Glob("*.csv")
+	var business []Businesses
+
+	for _, file := range files {
+		var temp []Businesses
+		csvReader(file, &temp)
+		business = append(business, temp...)
+	}
+
+	return business
 }
 
 func curl(url string) {

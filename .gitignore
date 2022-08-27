@@ -3,3 +3,4 @@
 apikey
 .env
 *.json
+test.go
