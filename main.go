@@ -168,7 +168,7 @@ func findWebsite(cid string, apiKey string) string {
 func pushToSheet(flagged []Businesses, empty []Businesses, review []Businesses) {
 	ctx := context.Background()
 
-	b, err := ioutil.ReadFile("supersite-scraping.json")
+	b, err := ioutil.ReadFile(os.Getenv("JWT_CONFIG"))
 	errCheck(err)
 	conf, err := google.JWTConfigFromJSON(b, "https://www.googleapis.com/auth/spreadsheets")
 	errCheck(err)
