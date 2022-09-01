@@ -37,7 +37,7 @@ func main() {
 	var flaggeds []Businesses
 	var emptys []Businesses
 
-	fmt.Println("Reading Data")
+	fmt.Println("Parsing Data")
 	for _, business := range businesses {
 		business.Website = strings.TrimSpace(business.Website)
 		business.CID = strings.TrimSpace(business.CID)
@@ -168,7 +168,7 @@ func findWebsite(cid string, apiKey string) string {
 func pushToSheet(flagged []Businesses, empty []Businesses, review []Businesses) {
 	ctx := context.Background()
 
-	b, err := ioutil.ReadFile(os.Getenv("JWT_CONFIG"))
+	b, err := ioutil.ReadFile(os.Getenv("JWT_TOKEN"))
 	errCheck(err)
 	conf, err := google.JWTConfigFromJSON(b, "https://www.googleapis.com/auth/spreadsheets")
 	errCheck(err)
