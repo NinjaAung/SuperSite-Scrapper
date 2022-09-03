@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -28,10 +29,11 @@ func errCheck(err error) {
 }
 
 func main() {
-	godotenv.Load()
 
-	fmt.Println("Reading and Combing All CSV")
-	businesses := ReadAll() // Reads all csv in current directory
+	e, _ := os.Executable()
+	fmt.Println("Reading and combing all CSV in:", path.Dir(e))
+	godotenv.Load(path.Dir(e) + "/" + ".env")
+	businesses := ReadAll(path.Dir(e))
 
 	var reviews []Businesses
 	var flaggeds []Businesses
@@ -45,7 +47,8 @@ func main() {
 		case "":
 			emptys = append(emptys, business)
 		case "http://business.site", "http://godaddysites.com":
-			business.Website = findWebsite(business.CID, os.Getenv("API_KEY"))
+			fmt.Println(path.Dir(e) + "/" + os.Getenv("API_KEY"))
+			business.Website = findWebsite(business.CID, path.Dir(e)+"/"+os.Getenv("API_KEY"))
 			// fmt.Printf("%s | <Found Missing Website>\n", business.Website)
 			fallthrough
 		default:
@@ -53,7 +56,7 @@ func main() {
 		}
 	}
 	// Push Finalization
-	pushToSheet(flaggeds, emptys, reviews)
+	pushToSheet(flaggeds, emptys, reviews, path.Dir(e))
 }
 
 func reviewPages(url string) bool {
@@ -93,10 +96,10 @@ func csvReader(file string, business *[]Businesses) {
 	gocsv.UnmarshalBytes(bytes, business)
 }
 
-func ReadAll() []Businesses {
-	files, _ := filepath.Glob("*.csv")
+func ReadAll(filePath string) []Businesses {
+	files, err := filepath.Glob(filePath + "/*.csv")
+	errCheck(err)
 	var business []Businesses
-
 	for _, file := range files {
 		var temp []Businesses
 		csvReader(file, &temp)
@@ -165,10 +168,10 @@ func findWebsite(cid string, apiKey string) string {
 	return places.Result.Website
 }
 
-func pushToSheet(flagged []Businesses, empty []Businesses, review []Businesses) {
+func pushToSheet(flagged []Businesses, empty []Businesses, review []Businesses, filePath string) {
 	ctx := context.Background()
-
-	b, err := ioutil.ReadFile(os.Getenv("JWT_TOKEN"))
+	fmt.Println(filePath + "/" + os.Getenv("JWT_TOKEN"))
+	b, err := ioutil.ReadFile(filePath + "/" + os.Getenv("JWT_TOKEN"))
 	errCheck(err)
 	conf, err := google.JWTConfigFromJSON(b, "https://www.googleapis.com/auth/spreadsheets")
 	errCheck(err)
@@ -200,7 +203,7 @@ func BatchUpdate(name string, data []Businesses, id string, srv *sheets.Service,
 
 	_, err := srv.Spreadsheets.Values.BatchUpdate(id, &rb).Context(ctx).Do()
 	errCheck(err)
-	fmt.Println("Done")
+	fmt.Println("... Done!")
 
 }
 
