@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -31,15 +33,14 @@ func errCheck(err error) {
 func main() {
 
 	e, _ := os.Executable()
-	fmt.Println("Reading and combing all CSV in:", path.Dir(e))
+	fmt.Printf("Reading and combing all CSV in: %s\n\n\n", path.Dir(e))
 	godotenv.Load(path.Dir(e) + "/" + ".env")
 	businesses := ReadAll(path.Dir(e))
-
 	var reviews []Businesses
 	var flaggeds []Businesses
 	var emptys []Businesses
 
-	fmt.Println("Parsing Data")
+	fmt.Printf("\n\nParsing %v Business Records\n", len(businesses))
 	for _, business := range businesses {
 		business.Website = strings.TrimSpace(business.Website)
 		business.CID = strings.TrimSpace(business.CID)
@@ -56,6 +57,7 @@ func main() {
 		}
 	}
 	// Push Finalization
+	fmt.Println("\n\n\nBatch Push")
 	pushToSheet(flaggeds, emptys, reviews, path.Dir(e))
 }
 
@@ -91,17 +93,22 @@ type Businesses struct {
 }
 
 func csvReader(file string, business *[]Businesses) {
+	gocsv.SetCSVReader(func(in io.Reader) gocsv.CSVReader { r := csv.NewReader(in); r.LazyQuotes = true; return r })
 	bytes, err := ioutil.ReadFile(file)
 	errCheck(err)
-	gocsv.UnmarshalBytes(bytes, business)
+
+	err = gocsv.UnmarshalBytes(bytes, business)
+	errCheck(err)
 }
 
 func ReadAll(filePath string) []Businesses {
 	files, err := filepath.Glob(filePath + "/*.csv")
+
 	errCheck(err)
 	var business []Businesses
 	for _, file := range files {
 		var temp []Businesses
+		fmt.Println("Loading: ", file)
 		csvReader(file, &temp)
 		business = append(business, temp...)
 	}
@@ -195,9 +202,8 @@ func BatchUpdate(name string, data []Businesses, id string, srv *sheets.Service,
 	rb := sheets.BatchUpdateValuesRequest{
 		ValueInputOption: "USER_ENTERED",
 	}
-
 	rb.Data = append(rb.Data, &sheets.ValueRange{
-		Range:  fmt.Sprintf("'%s'!A2:I500", name),
+		Range:  fmt.Sprintf("'%s'!A2:5000", name),
 		Values: csvToInterface(data),
 	})
 
