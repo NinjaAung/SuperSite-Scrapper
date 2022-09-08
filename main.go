@@ -105,11 +105,23 @@ func main() {
 			curl(business, &flaggeds, &reviews)
 		}
 	}
-	// Clean Duplicates
 
 	// Push Finalization
-	fmt.Println("\nBatch Push")
-	pushToSheet(flaggeds, emptys, reviews, path.Dir(e))
+	fmt.Println("\n---Batch Push---")
+	pushToSheet(cleanDuplicates(flaggeds), cleanDuplicates(emptys), cleanDuplicates(reviews))
+}
+
+func cleanDuplicates(data []Business) []Business {
+	check := make(map[string]Business)
+	var b []Business
+	for _, d := range data {
+		check[d.Name] = d
+	}
+	for _, d := range check {
+		b = append(b, d)
+	}
+	return b
+
 }
 
 func numberParse(number string) string {
@@ -143,9 +155,8 @@ func isPageHasFlash(url string) bool {
 	text := ""
 	c.OnHTML("script", func(e *colly.HTMLElement) { text += e.Text })
 	c.Visit(url)
-
-	fmt.Println(regexp.MatchString(".swf", text))
-	return false
+	b, _ := regexp.MatchString(".swf", text)
+	return b
 }
 
 // Checkers
@@ -154,7 +165,6 @@ func curl(business Business, flagged *[]Business, review *[]Business) {
 	cmd := exec.Command("curl", "-I", "-m", "5", url)
 	stdout, err := cmd.Output()
 	if err != nil {
-		fmt.Printf("%s | <FLAG>\n", url)
 		*flagged = append(*flagged, business)
 
 		return
@@ -270,7 +280,7 @@ func BatchUpdate(name string, data []Business, id string, srv *sheets.Service, c
 	}
 }
 
-func pushToSheet(flagged []Business, empty []Business, review []Business, filePath string) {
+func pushToSheet(flagged, empty, review []Business) {
 
 	spreadsheetID := os.Getenv("SPREADSHEET_ID")
 	b, _ := os.ReadFile(os.Getenv("JWT_TOKEN"))
