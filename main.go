@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
+	"time"
 	"unicode"
 
 	"github.com/gocarina/gocsv"
@@ -40,6 +42,12 @@ type Business struct {
 	PlaceID  string `csv:"PlaceID"`
 }
 
+var (
+	snapChan    = make(chan Business)
+	defaultChan = make(chan Business)
+	wg          sync.WaitGroup
+)
+
 func main() {
 	// Init Vars
 	var (
@@ -54,6 +62,7 @@ func main() {
 
 	// Program Start
 	godotenv.Load()
+	fmt.Println("---Loading Files---")
 	businesses := readAll(os.Getenv("FILE_PATH"))
 
 	// Google API Interface
@@ -63,59 +72,93 @@ func main() {
 		log.Fatal(err)
 	}
 
-	fmt.Printf("\n\nParsing %v Business Records\n", len(businesses))
+	fmt.Printf("\n---Processing %v Business Records---\n", len(businesses))
+	start := time.Now()
+
+	// SNAP Pre-Processing
 	if os.Getenv("SNAP") == "true" {
 		var bCells []Business
-		for _, b := range businesses {
-			b.Name = b.Business
-			b.PlaceID = findPlaceID(ctx, mClient, numberParse(b.Phone))
-			if b.PlaceID != "" {
-				b.Website = findWebsite(ctx, mClient, b.PlaceID)
-			}
-			bCells = append(bCells, b)
+		for i := 0; i < 100; i++ {
+			wg.Add(1)
+			go snapWorker(snapChan, &bCells, ctx, mClient)
 		}
+		for _, b := range businesses {
+			snapChan <- b
+		}
+		close(snapChan)
+		wg.Wait()
+
 		if len(bCells) != 0 {
 			businesses = bCells
 		}
 	}
-	for _, business := range businesses {
+
+	// Site Checker
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go defaultWorker(defaultChan, &flaggeds, &emptys, &reviews, ctx, mClient)
+	}
+
+	for _, b := range businesses {
+		defaultChan <- b
+	}
+	close(defaultChan)
+	wg.Wait()
+
+	fmt.Printf("Processed %v in %v\n\n", len(businesses), time.Since(start))
+	// Push Finalization
+	fmt.Println("---Batch Push---")
+	pushToSheet(cleanDuplicates(flaggeds), cleanDuplicates(emptys), cleanDuplicates(reviews))
+}
+
+func snapWorker(snapChan chan Business, bCells *[]Business, ctx context.Context, mClient *maps.Client) {
+	for b := range snapChan {
+		b.Name = b.Business
+		b.PlaceID = findPlaceID(ctx, mClient, numberParse(b.Phone))
+		if b.PlaceID != "" {
+			b.Website = findWebsite(ctx, mClient, b.PlaceID)
+		}
+		*bCells = append(*bCells, b)
+	}
+}
+
+func defaultWorker(defaultChan chan Business, flaggeds, emptys, reviews *[]Business, ctx context.Context, mClient *maps.Client) {
+	for business := range defaultChan {
 		if strings.ToLower(business.Reviews) == "no" {
 			business.Reviews = "0"
 		}
 
 		switch business.Website {
 		case "":
-			emptys = append(emptys, business)
+			*emptys = append(*emptys, business)
 		case "http://godaddysites.com", "http://business.site":
 			queryNumber := findPlaceID(ctx, mClient, numberParse(business.Website))
 
 			if queryNumber == "" {
-				emptys = append(emptys, business)
+				*emptys = append(*emptys, business)
 				break
 			}
 
 			business.Website = findWebsite(ctx, mClient, queryNumber)
 			if business.Website == "" {
-				emptys = append(emptys, business)
+				*emptys = append(*emptys, business)
 				break
 			}
 
 			fallthrough
 		default:
-			curl(business, &flaggeds, &reviews)
+			curl(business, flaggeds, reviews)
+
 		}
 	}
-
-	// Push Finalization
-	fmt.Println("\n---Batch Push---")
-	pushToSheet(cleanDuplicates(flaggeds), cleanDuplicates(emptys), cleanDuplicates(reviews))
+	wg.Done()
 }
 
 func cleanDuplicates(data []Business) []Business {
 	check := make(map[string]Business)
 	var b []Business
 	for _, d := range data {
-		check[d.Name] = d
+		check[d.Website] = d
 	}
 	for _, d := range check {
 		b = append(b, d)
@@ -263,7 +306,7 @@ func csvToInterface(businesses []Business) [][]interface{} {
 	var data [][]interface{}
 
 	for _, row := range businesses {
-		row_data := []interface{}{row.Name, strings.TrimSpace(fmt.Sprintf("%s %s, %s %s", row.Address, row.City, row.State, row.Zip)), row.Website, row.Phone, row.Reviews, row.Rating, row.Verified, row.Category}
+		row_data := []interface{}{row.Name, strings.TrimSpace(fmt.Sprintf("%s %s %s %s", row.Address, row.City, row.State, row.Zip)), row.Website, row.Phone, row.Reviews, row.Rating, row.Verified, row.Category}
 		data = append(data, row_data)
 	}
 	return data
