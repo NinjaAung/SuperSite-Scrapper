@@ -78,7 +78,7 @@ func main() {
 	// SNAP Pre-Processing
 	if os.Getenv("SNAP") == "true" {
 		var bCells []Business
-		for i := 0; i < 10; i++ {
+		for i := 0; i < 100; i++ {
 			wg.Add(1)
 			go snapWorker(snapChan, &bCells, ctx, mClient)
 		}
@@ -94,7 +94,7 @@ func main() {
 	}
 
 	// Site Checker
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 100; i++ {
 		wg.Add(1)
 		go defaultWorker(defaultChan, &flaggeds, &emptys, &reviews, ctx, mClient)
 	}
