@@ -4,3 +4,5 @@ apikey
 .env
 *.json
 test.go
+defaultcsv/
+brokencsv/

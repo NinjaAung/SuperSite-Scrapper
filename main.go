@@ -78,7 +78,7 @@ func main() {
 	// SNAP Pre-Processing
 	if os.Getenv("SNAP") == "true" {
 		var bCells []Business
-		for i := 0; i < 100; i++ {
+		for i := 0; i < 10; i++ {
 			wg.Add(1)
 			go snapWorker(snapChan, &bCells, ctx, mClient)
 		}
@@ -94,7 +94,7 @@ func main() {
 	}
 
 	// Site Checker
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 10; i++ {
 		wg.Add(1)
 		go defaultWorker(defaultChan, &flaggeds, &emptys, &reviews, ctx, mClient)
 	}
@@ -108,13 +108,86 @@ func main() {
 	fmt.Printf("Processed %v in %v\n\n", len(businesses), time.Since(start))
 	// Push Finalization
 	fmt.Println("---Batch Push---")
-	pushToSheet(cleanDuplicates(flaggeds), cleanDuplicates(emptys), cleanDuplicates(reviews))
+
+	spreadsheetID := os.Getenv("SPREADSHEET_ID")
+	b, _ := os.ReadFile(os.Getenv("JWT_TOKEN"))
+
+	conf, err := google.JWTConfigFromJSON(b, "https://www.googleapis.com/auth/spreadsheets")
+	if err != nil {
+		log.Fatal("Could not load JWT Service Account JSON file", err)
+	}
+
+	srv, _ := sheets.New(conf.Client(ctx))
+
+	updateSheet("Flagged", flaggeds, spreadsheetID, srv, ctx)
+	updateSheet("Empty", emptys, spreadsheetID, srv, ctx)
+	updateSheet("Review", reviews, spreadsheetID, srv, ctx)
+}
+
+func findWebsite(ctx context.Context, mClient *maps.Client, PlaceID string) string {
+	req := &maps.PlaceDetailsRequest{
+		PlaceID: PlaceID,
+		Fields:  []maps.PlaceDetailsFieldMask{"website"},
+	}
+	resp, err := mClient.PlaceDetails(ctx, req)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	return resp.Website
+
+}
+
+func findPlaceID(ctx context.Context, mClient *maps.Client, query string) string {
+	numberParse := func(number string) string {
+		p := "+1"
+		for _, char := range number {
+			if unicode.IsDigit(char) {
+				p += string(char)
+			}
+		}
+		return p
+	}
+	req := &maps.FindPlaceFromTextRequest{
+		Input:     numberParse(query),
+		InputType: "phonenumber",
+		Fields:    []maps.PlaceSearchFieldMask{"place_id"},
+	}
+	resp, err := mClient.FindPlaceFromText(ctx, req)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if len(resp.Candidates) != 0 {
+		return resp.Candidates[0].PlaceID
+	}
+	return ""
+}
+
+func updateSheet(name string, data []Business, id string, srv *sheets.Service, ctx context.Context) {
+	csvToInterface := func(b []Business) (data [][]interface{}) {
+		for _, row := range b {
+			row_data := []interface{}{row.Name, strings.TrimSpace(fmt.Sprintf("%s %s %s %s", row.Address, row.City, row.State, row.Zip)), row.Website, row.Phone, row.Reviews, row.Rating, row.Verified, row.Category}
+			data = append(data, row_data)
+		}
+		return data
+	}
+
+	b_data := csvToInterface(data)
+
+	fmt.Printf("Pushing %v %s data to Sheets", len(data), name)
+	defer fmt.Println("... Done!")
+	rb := sheets.BatchUpdateValuesRequest{ValueInputOption: "USER_ENTERED"}
+	rb.Data = append(rb.Data, &sheets.ValueRange{Range: fmt.Sprintf("'%s'!A2:5000", name), Values: b_data})
+	_, err := srv.Spreadsheets.Values.BatchUpdate(id, &rb).Context(ctx).Do()
+	if err != nil {
+		log.Fatal("Couldn't Update Spreadsheet", err)
+	}
 }
 
 func snapWorker(snapChan chan Business, bCells *[]Business, ctx context.Context, mClient *maps.Client) {
 	for b := range snapChan {
 		b.Name = b.Business
-		b.PlaceID = findPlaceID(ctx, mClient, numberParse(b.Phone))
+		b.PlaceID = findPlaceID(ctx, mClient, b.Phone)
 		if b.PlaceID != "" {
 			b.Website = findWebsite(ctx, mClient, b.PlaceID)
 		}
@@ -123,59 +196,35 @@ func snapWorker(snapChan chan Business, bCells *[]Business, ctx context.Context,
 }
 
 func defaultWorker(defaultChan chan Business, flaggeds, emptys, reviews *[]Business, ctx context.Context, mClient *maps.Client) {
-	for business := range defaultChan {
-		if strings.ToLower(business.Reviews) == "no" {
-			business.Reviews = "0"
+	for b := range defaultChan {
+		if strings.ToLower(b.Reviews) == "no" {
+			b.Reviews = "0"
 		}
-
-		switch business.Website {
+		switch b.Website {
 		case "":
-			*emptys = append(*emptys, business)
+			*emptys = append(*emptys, b)
 		case "http://godaddysites.com", "http://business.site":
-			queryNumber := findPlaceID(ctx, mClient, numberParse(business.Website))
+			queryNumber := findPlaceID(ctx, mClient, b.Phone)
 
 			if queryNumber == "" {
-				*emptys = append(*emptys, business)
+				*emptys = append(*emptys, b)
 				break
 			}
 
-			business.Website = findWebsite(ctx, mClient, queryNumber)
-			if business.Website == "" {
-				*emptys = append(*emptys, business)
+			b.Website = findWebsite(ctx, mClient, queryNumber)
+			if b.Website == "" {
+				*emptys = append(*emptys, b)
 				break
 			}
-
 			fallthrough
 		default:
-			curl(business, flaggeds, reviews)
-
+			curl(b, flaggeds, reviews)
 		}
 	}
 	wg.Done()
 }
 
-func cleanDuplicates(data []Business) []Business {
-	check := make(map[string]Business)
-	var b []Business
-	for _, d := range data {
-		check[d.Website] = d
-	}
-	for _, d := range check {
-		b = append(b, d)
-	}
-	return b
-
-}
-
-func numberParse(number string) string {
-	p := "+1"
-	for _, char := range number {
-		if unicode.IsDigit(char) {
-			p += string(char)
-		}
-	}
-	return p
-}
+// Checkers
 
 func isPageValid(url string) bool {
 	c := colly.NewCollector()
@@ -202,7 +251,6 @@ func isPageHasFlash(url string) bool {
 	return b
 }
 
-// Checkers
 func curl(business Business, flagged *[]Business, review *[]Business) {
 	url := strings.TrimSpace(business.Website)
 	cmd := exec.Command("curl", "-I", "-m", "5", url)
@@ -266,78 +314,4 @@ func readAll(filePath string) []Business {
 		business = append(business, temp...)
 	}
 	return business
-}
-
-// Maps
-
-func findWebsite(ctx context.Context, mClient *maps.Client, PlaceID string) string {
-	req := &maps.PlaceDetailsRequest{
-		PlaceID: PlaceID,
-		Fields:  []maps.PlaceDetailsFieldMask{"website"},
-	}
-	resp, err := mClient.PlaceDetails(ctx, req)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	return resp.Website
-
-}
-
-func findPlaceID(ctx context.Context, mClient *maps.Client, query string) string {
-	req := &maps.FindPlaceFromTextRequest{
-		Input:     query,
-		InputType: "phonenumber",
-		Fields:    []maps.PlaceSearchFieldMask{"place_id"},
-	}
-	resp, err := mClient.FindPlaceFromText(ctx, req)
-	if err != nil {
-		log.Fatal(err)
-	}
-	if len(resp.Candidates) != 0 {
-		return resp.Candidates[0].PlaceID
-	}
-	return ""
-}
-
-// Sheets
-
-func csvToInterface(businesses []Business) [][]interface{} {
-	var data [][]interface{}
-
-	for _, row := range businesses {
-		row_data := []interface{}{row.Name, strings.TrimSpace(fmt.Sprintf("%s %s %s %s", row.Address, row.City, row.State, row.Zip)), row.Website, row.Phone, row.Reviews, row.Rating, row.Verified, row.Category}
-		data = append(data, row_data)
-	}
-	return data
-}
-
-func BatchUpdate(name string, data []Business, id string, srv *sheets.Service, ctx context.Context) {
-	fmt.Printf("Pushing %s data to Sheets", name)
-	defer fmt.Println("... Done!")
-	rb := sheets.BatchUpdateValuesRequest{ValueInputOption: "USER_ENTERED"}
-	rb.Data = append(rb.Data, &sheets.ValueRange{Range: fmt.Sprintf("'%s'!A2:5000", name), Values: csvToInterface(data)})
-	_, err := srv.Spreadsheets.Values.BatchUpdate(id, &rb).Context(ctx).Do()
-	if err != nil {
-		log.Fatal("Couldn't Update Spreadsheet", err)
-	}
-}
-
-func pushToSheet(flagged, empty, review []Business) {
-
-	spreadsheetID := os.Getenv("SPREADSHEET_ID")
-	b, _ := os.ReadFile(os.Getenv("JWT_TOKEN"))
-
-	conf, err := google.JWTConfigFromJSON(b, "https://www.googleapis.com/auth/spreadsheets")
-	if err != nil {
-		log.Fatal("Could not load JWT Service Account JSON file", err)
-	}
-
-	ctx := context.Background()
-	srv, _ := sheets.New(conf.Client(ctx))
-
-	BatchUpdate("Flagged", flagged, spreadsheetID, srv, ctx)
-	BatchUpdate("Empty", empty, spreadsheetID, srv, ctx)
-	BatchUpdate("Review", review, spreadsheetID, srv, ctx)
-
 }
