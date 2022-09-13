@@ -25,21 +25,22 @@ import (
 )
 
 type Business struct {
-	Business string `csv:"Business"` // same as name
-	Name     string `csv:"Name"`
-	Email    string `csv:"Email"`
-	Address  string `csv:"Address"`
-	City     string `csv:"City"`
-	State    string `csv:"State"`
-	Zip      string `csv:"Zip"`
-	Website  string `csv:"Website"`
-	Phone    string `csv:"Phone"`
-	Reviews  string `csv:"Reviews"`
-	Rating   string `csv:"Ratings"`
-	Verified string `csv:"Merchant Verified"`
-	Category string `csv:"Category"`
-	CID      string `csv:"Listing CID"`
-	PlaceID  string `csv:"PlaceID"`
+	Business     string `csv:"Business"` // same as name
+	BusinessName string `csv:"Business Name"`
+	Name         string `csv:"Name"`
+	Email        string `csv:"Email"`
+	Address      string `csv:"Address"`
+	City         string `csv:"City"`
+	State        string `csv:"State"`
+	Zip          string `csv:"Zip"`
+	Website      string `csv:"Website"`
+	Phone        string `csv:"Phone"`
+	Reviews      string `csv:"Reviews"`
+	Rating       string `csv:"Ratings"`
+	Verified     string `csv:"Merchant Verified"`
+	Category     string `csv:"Category"`
+	CID          string `csv:"Listing CID"`
+	PlaceID      string `csv:"PlaceID"`
 }
 
 var (
@@ -186,10 +187,16 @@ func updateSheet(name string, data []Business, id string, srv *sheets.Service, c
 
 func snapWorker(snapChan chan Business, bCells *[]Business, ctx context.Context, mClient *maps.Client) {
 	for b := range snapChan {
-		b.Name = b.Business
+		b.Name = b.BusinessName
 		b.PlaceID = findPlaceID(ctx, mClient, b.Phone)
 		if b.PlaceID != "" {
 			b.Website = findWebsite(ctx, mClient, b.PlaceID)
+		}
+		if b.Website == "" {
+			v, _ := regexp.MatchString(`(http(s)?:\/\/.)?(www\.)?[-a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,6}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)`, b.Name)
+			if v {
+				b.Website = b.Name
+			}
 		}
 		*bCells = append(*bCells, b)
 	}
