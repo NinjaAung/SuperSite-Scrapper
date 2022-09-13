@@ -20,7 +20,7 @@ Scrap file to check if website is "broken" according to these patterns:
     |- sf.csv
 ```
 
-2. Create an `.env` file with these items
+1. Create an `.env` file with these items
 
 ```env
 API_KEY=        // Google Places API key from Google Console
@@ -30,4 +30,4 @@ SNAP= // Set Snap processing to true or false
 FILE_PATH= //Set folder path
 ```
 
-3. run `./supersite` in terminal and it should start working
+1. run `./supersite` in terminal and it should start working

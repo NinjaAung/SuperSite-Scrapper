@@ -193,6 +193,7 @@ func snapWorker(snapChan chan Business, bCells *[]Business, ctx context.Context,
 		}
 		*bCells = append(*bCells, b)
 	}
+	wg.Done()
 }
 
 func defaultWorker(defaultChan chan Business, flaggeds, emptys, reviews *[]Business, ctx context.Context, mClient *maps.Client) {

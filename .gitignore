@@ -6,3 +6,4 @@ apikey
 test.go
 defaultcsv/
 brokencsv/
+snapcsv/
